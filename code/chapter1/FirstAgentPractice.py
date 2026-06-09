@@ -4,6 +4,7 @@ AGENT_SYSTEM_PROMPT = """
 # 可用工具:
 - `get_weather(city: str)`: 查询指定城市的实时天气。
 - `get_attraction(city: str, weather: str)`: 根据城市和天气搜索推荐的旅游景点。
+- `get_current_time(city: str)`: 查询指定城市的当前时间。
 
 # 输出格式要求:
 你的每次回复必须严格遵循以下格式,包含一对Thought和Action:
@@ -25,6 +26,8 @@ Action的格式必须是以下之一:
 
 
 import requests
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 def get_weather(city: str) -> str:
     """
@@ -56,7 +59,30 @@ def get_weather(city: str) -> str:
         # 处理数据解析错误
         return f"错误:解析天气数据失败,可能是城市名称无效 - {e}"
 
+def get_current_time(city: str) -> str:
+    """
+    根据城市对应的 IANA 时区查询当前时间。
+    """
+    city_timezones = {
+        "武汉": "Asia/Shanghai",
+        "北京": "Asia/Shanghai",
+        "上海": "Asia/Shanghai",
+        "广州": "Asia/Shanghai",
+        "深圳": "Asia/Shanghai",
+        "东京": "Asia/Tokyo",
+        "伦敦": "Europe/London",
+        "纽约": "America/New_York",
+    }
 
+    timezone_name = city_timezones.get(city)
+    if not timezone_name:
+        return f"错误:暂不支持城市“{city}”,请先在 city_timezones 中配置其时区。"
+
+    try:
+        current_time = datetime.now(ZoneInfo(timezone_name))
+        return f"{city}当前时间:{current_time:%Y-%m-%d %H:%M:%S}"
+    except Exception as e:
+        return f"错误:查询时间失败 - {e}"
 
 import os
 from tavily import TavilyClient
@@ -106,6 +132,7 @@ def get_attraction(city: str, weather: str) -> str:
 available_tools = {
     "get_weather": get_weather,
     "get_attraction": get_attraction,
+    "get_current_time": get_current_time,
 }
 
 from openai import OpenAI
@@ -169,7 +196,7 @@ llm = OpenAICompatibleClient(
 )
 
 # --- 2. 初始化 ---
-user_prompt = "你好,请帮我查询一下今天武汉的天气,然后根据天气推荐一个合适的旅游景点。"
+user_prompt = "你好,请帮我查询一下武汉现在几点,我应该去做什么。"
 prompt_history = [f"用户请求: {user_prompt}"]
 
 print(f"用户输入: {user_prompt}\n" + "="*40)
