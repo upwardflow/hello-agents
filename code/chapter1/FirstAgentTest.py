@@ -1,3 +1,64 @@
+"""
+第一章学习复盘：旅行 Agent 的核心机制
+
+1. 用户输入、工具调用和 Observation 如何流转？
+   标准答案：
+   用户输入先加入 prompt_history,再拼接成 full_prompt 发送给大语言模型。
+   模型根据系统提示词生成 Action 文本;Python 解析 Action,从
+   available_tools 中找到并执行真实函数。工具结果作为 Observation
+   追加到 prompt_history,随后完整历史再次传给模型。
+
+2. 为什么不能第一次调用模型就直接生成最终答案？
+   标准答案：
+   模型本身通常不知道实时天气。它需要先决定调用工具,由外部服务获取
+   真实信息,再根据 Observation 继续决策。多轮循环的本质是：
+   模型决策 -> 外部执行 -> 结果反馈 -> 模型继续决策。
+
+3. 为什么需要 available_tools 工具字典？
+   标准答案：
+   模型输出的工具名只是字符串。available_tools 将工具名映射到真实的
+   Python 函数,使程序能够调度工具。它也便于扩展,并构成工具白名单,
+   限制模型只能调用明确注册的函数。
+
+4. 模型请求调用未注册工具时应如何处理？为什么不能使用 eval()?
+   标准答案：
+   程序应拒绝调用,并将“未知工具”作为 Observation 反馈给模型。
+   Python 的 eval() 会把字符串当作代码执行;模型输出是不可信输入,
+   直接执行可能导致读取密钥、删除文件或运行系统命令。安全方案是：
+   工具白名单 + 参数校验 + 权限限制。
+
+5. 为什么要限制 Agent 的最大循环次数？
+   标准答案：
+   防止模型反复调用同一工具或因格式错误陷入无限循环,同时控制上下文
+   长度、响应时间、API 费用和外部服务限流风险。
+
+6. 为什么模型可能不遵守 Thought-Action 格式？程序如何处理？
+   标准答案：
+   系统提示词是自然语言软约束,而模型是概率式生成,因此可能输出解释、
+   Markdown 或多组 Thought-Action。程序使用正则表达式截取第一组结果,
+   再检查 Action;解析失败时,将错误作为 Observation 反馈给模型重试。
+   正式项目通常优先使用 JSON Schema、结构化输出或原生 tool calling。
+
+7. response.raise_for_status() 和 response.json() 分别做什么？
+   标准答案：
+   raise_for_status() 检查 HTTP 状态码,并在 4xx、5xx 时抛出异常;
+   json() 将响应正文解析成 Python 字典或列表。前者避免继续处理错误响应,
+   后者使程序能够按字段读取天气数据。
+
+8. 大语言模型、系统提示词、Python 主循环和外部工具分别负责什么？
+   标准答案：
+   - 大语言模型：根据上下文选择下一步行动或生成最终答案。
+   - 系统提示词：定义角色、可用工具、行为边界和输出协议。
+   - Python 主循环：调用模型、解析 Action、调度工具、记录 Observation,
+     并决定继续循环还是结束。
+   - 外部工具：访问天气、搜索等外部数据源,执行真实操作。
+
+总结：
+这个 Agent 本质上是一个由大语言模型负责决策、Python 负责控制和执行、
+外部工具负责获取真实信息的循环系统。模型生成的是行动文本,真正的函数
+调用始终由 Python 程序完成。
+"""
+
 AGENT_SYSTEM_PROMPT = """
 你是一个智能旅行助手。你的任务是分析用户的请求,并使用可用工具一步步地解决问题。
 
@@ -139,13 +200,28 @@ class OpenAICompatibleClient:
             return "错误:调用语言模型服务时出错。"
 
 import re
+from pathlib import Path
+from dotenv import load_dotenv
 
 # --- 1. 配置LLM客户端 ---
-# 请根据您使用的服务,将这里替换成对应的凭证和地址
-API_KEY = "YOUR_API_KEY"
-BASE_URL = "YOUR_BASE_URL"
-MODEL_ID = "YOUR_MODEL_ID"
-os.environ['TAVILY_API_KEY'] = "YOUR_TAVILY_API_KEY"
+# 从项目根目录加载配置,避免依赖启动命令所在的目录。
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
+
+API_KEY = os.getenv("API_KEY")
+BASE_URL = os.getenv("BASE_URL")
+MODEL_ID = os.getenv("MODEL_ID")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+
+missing_config = [
+    name for name, value in {
+        "API_KEY": API_KEY,
+        "BASE_URL": BASE_URL,
+        "MODEL_ID": MODEL_ID,
+        "TAVILY_API_KEY": TAVILY_API_KEY,
+    }.items() if not value
+]
+if missing_config:
+    raise RuntimeError(f".env 缺少配置: {', '.join(missing_config)}")
 
 llm = OpenAICompatibleClient(
     model=MODEL_ID,
@@ -154,7 +230,7 @@ llm = OpenAICompatibleClient(
 )
 
 # --- 2. 初始化 ---
-user_prompt = "你好,请帮我查询一下今天北京的天气,然后根据天气推荐一个合适的旅游景点。"
+user_prompt = "你好,请帮我查询一下今天武汉的天气,然后根据天气推荐一个合适的旅游景点。"
 prompt_history = [f"用户请求: {user_prompt}"]
 
 print(f"用户输入: {user_prompt}\n" + "="*40)
