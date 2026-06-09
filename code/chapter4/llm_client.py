@@ -1,23 +1,24 @@
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+from pathlib import Path
 from typing import List, Dict
 
 # 加载 .env 文件中的环境变量
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
 
 class HelloAgentsLLM:
     """
     为本书 "Hello Agents" 定制的LLM客户端。
-    它用于调用任何兼容OpenAI接口的服务，并默认使用流式响应。
+    它用于调用任何兼容OpenAI接口的服务,并默认使用流式响应。
     """
     def __init__(self, model: str = None, apiKey: str = None, baseUrl: str = None, timeout: int = None):
         """
         初始化客户端。优先使用传入参数，如果未提供，则从环境变量加载。
         """
-        self.model = model or os.getenv("LLM_MODEL_ID")
-        apiKey = apiKey or os.getenv("LLM_API_KEY")
-        baseUrl = baseUrl or os.getenv("LLM_BASE_URL")
+        self.model = model or os.getenv("LLM_MODEL_ID") or os.getenv("MODEL_ID")
+        apiKey = apiKey or os.getenv("LLM_API_KEY") or os.getenv("API_KEY")
+        baseUrl = baseUrl or os.getenv("LLM_BASE_URL") or os.getenv("BASE_URL")
         timeout = timeout or int(os.getenv("LLM_TIMEOUT", 60))
         
         if not all([self.model, apiKey, baseUrl]):
